@@ -6,40 +6,28 @@ import org.jsoup.nodes.*;
 import org.jsoup.select.Elements;
 
 public class Parser {
-    private static final String NAME_FILE = "acronyms.csv";
-    private File file;
-    private PrintWriter pw;
+    private static final String DEFAULT_NAME_FILE = "acronyms.csv";
+    private final File file;
 
     public Parser() {
-        file = new File(NAME_FILE);
+        file = new File(DEFAULT_NAME_FILE);
     }
 
     public Parser(String nameFile) {
         this.file = nameFile.endsWith(".csv") ? new File(nameFile) : new File(nameFile + ".csv");
     }
 
-    public File getFile() {
-        return file;
-    }
 
-    public void setFile(File file) {
-        this.file = file;
-    }
-
-    public void start() {
-        try {
-            FileWriter out = new FileWriter(file);
-            pw = new PrintWriter(out);
+    public void parse() {
+        try (FileWriter out = new FileWriter(file); PrintWriter pw = new PrintWriter(out)) {
             //Getting all links to pages with acronyms, without duplicates
             Elements link = getPagesLinksObjectsAcronyms();
             //Getting all links to acronyms
             Elements linkAcr = getLinksObjectsAcronyms(link);
             //Getting all links to attributes acronyms and write they to file
-            writeInformation(linkAcr);
+            writeInformation(linkAcr, pw);
         } catch (IOException | InterruptedException ex) {
             ex.printStackTrace();
-        } finally {
-            pw.close();
         }
     }
 
@@ -47,10 +35,10 @@ public class Parser {
         Document doc = Jsoup.connect("https://www.teledynecaris.com/s-57/frames/main.html").get();
         Elements linksPages = new Elements(doc.getElementsByTag("a")
                 .stream()
+                .skip(1)    //Skip first element because it does not match the task
                 .takeWhile(x -> !x.attr("href").equals("../attribut/attrib_info.htm"))
                 .collect(Collectors.toList())
         );
-        linksPages.remove(0);
         //Delete duplicate pages
         for (int i = 0; i < linksPages.size() - 1; i++) {
             if (linksPages.get(i).attr("href").equals(linksPages.get(i + 1).attr("href"))) {
@@ -61,18 +49,22 @@ public class Parser {
         return linksPages;
     }
 
-    private Elements getLinksObjectsAcronyms(Elements pages) throws IOException, InterruptedException {
+    private Elements getLinksObjectsAcronyms(Elements pages) throws IOException {
         Elements links = new Elements();
-        for (Element page : pages) {
-            //Thread.sleep(1);
+        return pages.stream().flatMap(p -> Jsoup.connect(p.absUrl("href")).get().getElementsByTag("a")
+                .stream()
+                .skip(1)
+                .collect(Collectors.toList())).collect(Collectors.toList());
+
+        /*for (Element page : pages) {
             Elements link = Jsoup.connect(page.absUrl("href")).get().getElementsByTag("a");
             link.remove(0);
             links.addAll(link);
-        }
+        }*/
         return links;
     }
 
-    private void writeInformation(Elements pages) throws IOException, InterruptedException {
+    private void writeInformation(Elements pages, PrintWriter pw) throws IOException, InterruptedException {
         for (Element page : pages) {
             //Thread.sleep(1);
             Document doc = Jsoup.connect(page.absUrl("href")).get();
@@ -91,12 +83,12 @@ public class Parser {
             temp += curr;
             for (Element el : doc.getElementsByTag("a")) {
                 //Thread.sleep(1);
-                writeFromAttributePage(Jsoup.connect(el.absUrl("href")).get(), temp);
+                writeFromAttributePage(Jsoup.connect(el.absUrl("href")).get(), temp, pw);
             }
         }
     }
 
-    private void writeFromAttributePage(Document page, String temp) {
+    private void writeFromAttributePage(Document page, String temp, PrintWriter pw) {
         String curr = "";
         for (Element el : page.getElementsByTag("p")) {
             if (el.text().matches("\\s*Attribute: .+")) {
